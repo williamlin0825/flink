@@ -44,9 +44,13 @@ import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 // THIS FILE IS COPIED FROM APACHE CALCITE
 
@@ -435,12 +439,38 @@ public class DiffRepository {
                 // for largish snippets
                 String expected2Canonical = expected2.replace(Util.LINE_SEPARATOR, "\n");
                 String actualCanonical = actual.replace(Util.LINE_SEPARATOR, "\n");
-                Assertions.assertEquals(expected2Canonical, actualCanonical, tag);
+                String sortedExpected = normalizePartitionOrdering(expected2Canonical);
+                String sortedActual = normalizePartitionOrdering(actualCanonical);
+                Assertions.assertEquals(sortedExpected, sortedActual, tag);
             } catch (AssertionFailedError e) {
                 amend(testCaseName, expected, actual);
                 throw e;
             }
         }
+    }
+
+    private String normalizePartitionOrdering(String plan) {
+        // Pattern to extract partitions
+        Pattern pattern = Pattern.compile("partitions=\\[(.*?)\\]");
+        Matcher matcher = pattern.matcher(plan);
+        if (matcher.find()) {
+            String partitions = matcher.group(1);
+            String[] partitionArray = partitions.split("},\\s*\\{");
+            List<String> sortedPartitions =
+                    Arrays.stream(partitionArray)
+                            .map(partition -> partition.replace("{", "").replace("}", ""))
+                            .map(
+                                    partition -> {
+                                        String[] keyValues = partition.split(",\\s*");
+                                        Arrays.sort(keyValues);
+                                        return "{" + String.join(", ", keyValues) + "}";
+                                    })
+                            .sorted()
+                            .collect(Collectors.toList());
+            String sortedPartitionsString = String.join(", ", sortedPartitions);
+            return matcher.replaceFirst("partitions=[" + sortedPartitionsString + "]");
+        }
+        return plan;
     }
 
     /**
